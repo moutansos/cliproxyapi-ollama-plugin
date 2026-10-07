@@ -250,7 +250,7 @@ Validation has two levels:
   256–16 777 216, or managed fields on an observe override. A managed policy
   without any `num_ctx` falls back to observe.
 
-All issues appear at `GET /v0/management/cliproxyapi-ollama/status`.
+All issues appear at `GET /v0/management/plugins/cliproxyapi-ollama/status`.
 
 CPAMC object and array fields are accepted either as YAML collections or as
 JSON strings.
@@ -259,12 +259,12 @@ JSON strings.
 
 These routes require the management key:
 
-- `GET /v0/management/cliproxyapi-ollama/status`: config summary (with the API
+- `GET /v0/management/plugins/cliproxyapi-ollama/status`: config summary (with the API
   key redacted to a boolean), discovery state, per-model resolution with
   source, observation time, declared max, verification and discrepancy, the
   excluded models with reasons, config issues, and overrides that match no
   model.
-- `POST /v0/management/cliproxyapi-ollama/refresh`: run discovery now.
+- `POST /v0/management/plugins/cliproxyapi-ollama/refresh`: run discovery now.
 
 The plugin registers no unauthenticated resource routes.
 
@@ -279,3 +279,10 @@ The plugin registers no unauthenticated resource routes.
   ignored.
 - `n > 1`, logprobs, and audio are not supported.
 - There is one instance in v1.
+- Intel macOS (darwin/amd64) is not supported. Go stores the goroutine
+  pointer at the fixed TLS slot `%gs:0x30` on darwin/amd64
+  (`cmd/link/internal/ld/sym.go`), so a Go c-shared plugin and the Go-based
+  host share it. In CI the plugin crashed the host on its first call. The
+  plugin's c-shared signal handlers (SIGURG, SIGSEGV, SIGPIPE) would also see
+  the host's goroutines. darwin/arm64 uses a per-runtime pthread key, and Linux
+  uses per-image ELF TLS, so both are sound.

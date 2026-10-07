@@ -1,0 +1,190 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.26.8"
+  CPA_VERSION: "8.0.11"
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l cmd internal tools)"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race -count=1 ./...
+
+      - name: Check the release version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: test "${GITHUB_REF_NAME#v}" = "$(cat VERSION)"
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: test
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # darwin/amd64 is intentionally absent: Go stores the g pointer in the
+        # fixed TLS slot %gs:0x30 there, which the plugin runtime shares with
+        # the Go-based CLIProxyAPI host, so any Go c-shared plugin crashes the
+        # host on its first call. See internal/release.SupportedPlatforms.
+        include:
+          - goos: linux
+            goarch: amd64
+            runner: ubuntu-24.04
+          - goos: linux
+            goarch: arm64
+            runner: ubuntu-24.04-arm
+          - goos: darwin
+            goarch: arm64
+            runner: macos-15
+          - goos: windows
+            goarch: amd64
+            runner: windows-2025
+    defaults:
+      run:
+        shell: bash
+    env:
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Resolve version and paths
+        run: |
+          set -euo pipefail
+          VERSION="$(cat VERSION)"
+          case "$GOOS" in
+            darwin) EXT=dylib ;;
+            windows) EXT=dll ;;
+            *) EXT=so ;;
+          esac
+          {
+            echo "VERSION=${VERSION}"
+            echo "LIB=build/plugins/${GOOS}/${GOARCH}/cliproxyapi-ollama.${EXT}"
+            echo "ARCHIVE=cliproxyapi-ollama_${VERSION}_${GOOS}_${GOARCH}.zip"
+          } >> "$GITHUB_ENV"
+
+      - name: Build (Linux, manylinux2014)
+        if: matrix.goos == 'linux'
+        run: scripts/build-linux.sh "$GOARCH" "$VERSION" "$LIB"
+
+      - name: Build (macOS and Windows)
+        if: matrix.goos != 'linux'
+        env:
+          CGO_ENABLED: "1"
+          MACOSX_DEPLOYMENT_TARGET: "12.0"
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$LIB")"
+          go build -buildvcs=false -trimpath \
+            -ldflags "-s -w -X main.pluginVersion=${VERSION}" \
+            -buildmode=c-shared -o "$LIB" ./cmd/cliproxyapi-ollama
+          rm -f "${LIB%.*}.h"
+          if [ "$GOOS" = darwin ]; then
+            otool -l "$LIB" | grep -A4 -E "LC_BUILD_VERSION|LC_VERSION_MIN_MACOSX" || true
+          fi
+
+      - name: Package
+        env:
+          GOOS: ""
+          GOARCH: ""
+        run: |
+          set -euo pipefail
+          go run ./tools/releasetool package -lib "$LIB" -out dist -version "$VERSION" -goos "${{ matrix.goos }}" -goarch "${{ matrix.goarch }}"
+          go run ./tools/releasetool checksums -dir dist
+          go run ./tools/releasetool verify -dir dist -version "$VERSION" -platforms "${{ matrix.goos }}/${{ matrix.goarch }}"
+
+      - name: Smoke test in CLIProxyAPI ${{ env.CPA_VERSION }}
+        env:
+          GOOS: ""
+          GOARCH: ""
+        run: go run ./tools/smoke -plugin "$LIB" -cpa-version "$CPA_VERSION" -expect-version "$VERSION"
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: dist/${{ env.ARCHIVE }}
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Download archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Write and verify checksums
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          go run ./tools/releasetool checksums -dir dist
+          go run ./tools/releasetool verify -dir dist -version "$VERSION"
+
+      - name: Extract release notes
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          test -s notes.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.zip dist/checksums.txt \
+            --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md

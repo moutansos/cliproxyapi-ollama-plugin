@@ -20,7 +20,7 @@ This is a native CLIProxyAPI v8.0.11 plugin (`cliproxyapi-ollama.so`, plugin ID
   plugin config fields.
 
 There is also a read-only diagnostics route,
-`GET /v0/management/cliproxyapi-ollama/status`, plus a `POST …/refresh` route.
+`GET /v0/management/plugins/cliproxyapi-ollama/status`, plus a `POST …/refresh` route.
 
 See `README.md` (usage) and `docs/design.md` (architecture and v8.0.11
 findings).
@@ -74,10 +74,34 @@ findings).
 
 ## Artifact
 
-`make build` writes `build/plugins/linux/amd64/cliproxyapi-ollama.so` and
-prints its SHA-256. It is built in `golang:1.26-bookworm` and requires at most
-GLIBC_2.34; the CLIProxyAPI image is Debian 12 with glibc 2.36. Release builds
-are attached to GitHub releases together with their checksum.
+Releases follow the CLIProxyAPI plugin store format:
+
+- one `cliproxyapi-ollama_<version>_<goos>_<goarch>.zip` per platform, with the
+  library at the zip root;
+- a `checksums.txt` in `sha256sum` format.
+
+The platforms are linux amd64/arm64, darwin arm64, and windows amd64.
+darwin/amd64 is not built: Go uses one fixed TLS slot (`%gs:0x30`) for the
+goroutine pointer there, which a Go plugin shares with the Go-based host. The
+plugin crashed CLIProxyAPI on its first call in CI (`fatal error: unknown
+caller pc`; see golang/go#38692). The store review asks for darwin/amd64; see
+`docs/store-submission.md`.
+
+The `Build` workflow runs on every push and pull request. For each platform it:
+
+- builds the library (Linux in manylinux2014, failing above glibc 2.17;
+  macOS and Windows natively);
+- packages it and verifies the archive against the store installer's rules
+  (`internal/release`);
+- runs `tools/smoke`, which loads the library into the matching CLIProxyAPI
+  v8.0.11 release binary against a fake Ollama and checks discovery, listing,
+  chat (OpenAI and Claude, streaming and not), managed context, and the
+  authenticated diagnostics routes.
+
+A `v<version>` tag that matches `VERSION` also publishes the GitHub release.
+
+`make build`, `make package`, and `make smoke` run the same Linux steps
+locally. The store submission is prepared in `docs/store-submission.md`.
 
 ## Deployment procedure (Docker)
 
@@ -100,7 +124,7 @@ are attached to GitHub releases together with their checksum.
    `PUT /v0/management/plugins/cliproxyapi-ollama/config` and body
    `{"enabled": true, "priority": 10, "base_url": "http://<ollama-host>:11434"}`.
    CLIProxyAPI reloads without a restart.
-4. Check `GET /v0/management/cliproxyapi-ollama/status` and `/v1/models`.
+4. Check `GET /v0/management/plugins/cliproxyapi-ollama/status` and `/v1/models`.
 
 **Updating** an installed library at the same path takes effect only after a
 CLIProxyAPI restart. Go `c-shared` libraries cannot be unloaded, and a
@@ -126,8 +150,9 @@ the plugins directory as a rollback copy.
 
 ## Limitations
 
-- **Update requires restart:** a same-path `.so` update takes effect only on a
-  CLIProxyAPI restart.
+- **Manual updates need a restart:** a manually installed `.so` overwritten at
+  the same path takes effect only on a CLIProxyAPI restart. Store installs use
+  versioned file names and update in place.
 - **Lagging views:** the Claude-format `/v1/models` and CPAMC model pickers are
   registry-backed and update only on config reload. The OpenAI `/v1/models`
   list and routing are live.
@@ -147,4 +172,3 @@ the plugins directory as a rollback copy.
   management-authenticated, so this needs an authenticated design.
 - Multi-instance support: an `instances` list, per-instance prefixes, and
   overrides keyed `<instance>/<name:tag>`.
-- CI: run `go vet`, `go test -race`, and `make build` on pull requests.
