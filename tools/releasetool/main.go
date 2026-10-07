@@ -2,7 +2,7 @@
 //
 //	releasetool package   -lib <path> -out <dir> -version <x.y.z> -goos <os> -goarch <arch>
 //	releasetool checksums -dir <dir>
-//	releasetool verify    -dir <dir> -version <x.y.z> [-platforms all|linux/amd64,...]
+//	releasetool verify    -dir <dir> -version <x.y.z> [-platforms supported|store|linux/amd64,...]
 package main
 
 import (
@@ -73,11 +73,15 @@ func verifyCmd(args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ExitOnError)
 	dir := fs.String("dir", "dist", "release directory")
 	version := fs.String("version", "", "version without a leading v")
-	platforms := fs.String("platforms", "all", "all, or a comma-separated list like linux/amd64")
+	platforms := fs.String("platforms", "supported", "supported, store, or a comma-separated list like linux/amd64")
 	_ = fs.Parse(args)
-	selected := release.StorePlatforms
-	if *platforms != "all" {
-		selected = nil
+	var selected []release.Platform
+	switch *platforms {
+	case "supported":
+		selected = release.SupportedPlatforms
+	case "store":
+		selected = release.StorePlatforms
+	default:
 		for _, item := range strings.Split(*platforms, ",") {
 			goos, goarch, ok := strings.Cut(strings.TrimSpace(item), "/")
 			if !ok {

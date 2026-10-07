@@ -42,6 +42,18 @@ var StorePlatforms = []Platform{
 	{"windows", "amd64"},
 }
 
+// SupportedPlatforms are the platforms where a Go c-shared plugin can run
+// inside the Go-based CLIProxyAPI host. darwin/amd64 is excluded: Go hard-codes
+// the g pointer at %gs:0x30 there (cmd/link/internal/ld/sym.go, golang/go#23617),
+// so the plugin runtime and the host runtime share one TLS slot and the plugin
+// crashes the host on its first call (golang/go#38692).
+var SupportedPlatforms = []Platform{
+	{"darwin", "arm64"},
+	{"linux", "amd64"},
+	{"linux", "arm64"},
+	{"windows", "amd64"},
+}
+
 // Same patterns as CLIProxyAPI internal/pluginstore/registry.go.
 var (
 	versionPattern = regexp.MustCompile(`^[0-9][0-9A-Za-z.+-]*$`)

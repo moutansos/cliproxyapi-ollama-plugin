@@ -165,3 +165,21 @@ func TestVersionRules(t *testing.T) {
 		}
 	}
 }
+
+func TestSupportedPlatformsExcludeIntelMac(t *testing.T) {
+	store := map[Platform]bool{}
+	for _, p := range StorePlatforms {
+		store[p] = true
+	}
+	for _, p := range SupportedPlatforms {
+		if !store[p] {
+			t.Errorf("%s is supported but not a store platform", p)
+		}
+		if p == (Platform{"darwin", "amd64"}) {
+			t.Error("darwin/amd64 must not be listed as supported")
+		}
+	}
+	if len(SupportedPlatforms) != len(StorePlatforms)-1 {
+		t.Errorf("expected every store platform except darwin/amd64, got %v", SupportedPlatforms)
+	}
+}

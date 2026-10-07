@@ -42,8 +42,15 @@ can load an update without a restart.
 
 Each [GitHub release](https://github.com/moutansos/cliproxyapi-ollama-plugin/releases)
 has `cliproxyapi-ollama_<version>_<goos>_<goarch>.zip` for each of linux/amd64,
-linux/arm64, darwin/amd64, darwin/arm64, and windows/amd64, plus
+linux/arm64, darwin/arm64 (Apple silicon), and windows/amd64, plus
 `checksums.txt`.
+
+**Intel Macs (darwin/amd64) are not supported.** On that platform Go keeps
+the current goroutine pointer in one fixed thread-local slot (`%gs:0x30`). A
+Go plugin and the Go-based CLIProxyAPI host would share it, so the plugin
+crashes CLIProxyAPI on its first call. This limits every Go-built
+CLIProxyAPI plugin, not just this one; see
+[golang/go#38692](https://github.com/golang/go/issues/38692).
 
 1. Verify the archive and unzip it:
 
@@ -109,7 +116,7 @@ make smoke    # load the build into a real CLIProxyAPI release binary against a 
 The [`Build`](.github/workflows/build.yml) workflow then:
 
 - runs the tests;
-- builds all five platforms;
+- builds every supported platform;
 - loads each library into the matching CLIProxyAPI release binary and runs the
   smoke test;
 - verifies the archives against the store installer's rules;

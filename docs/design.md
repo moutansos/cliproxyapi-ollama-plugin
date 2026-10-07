@@ -279,3 +279,10 @@ The plugin registers no unauthenticated resource routes.
   ignored.
 - `n > 1`, logprobs, and audio are not supported.
 - There is one instance in v1.
+- Intel macOS (darwin/amd64) is not supported. Go stores the goroutine
+  pointer at the fixed TLS slot `%gs:0x30` on darwin/amd64
+  (`cmd/link/internal/ld/sym.go`), so a Go c-shared plugin and the Go-based
+  host share it. In CI the plugin crashed the host on its first call. The
+  plugin's c-shared signal handlers (SIGURG, SIGSEGV, SIGPIPE) would also see
+  the host's goroutines. darwin/arm64 uses a per-runtime pthread key, and Linux
+  uses per-image ELF TLS, so both are sound.

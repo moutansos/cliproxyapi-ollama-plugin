@@ -13,12 +13,19 @@ follows [Semantic Versioning](https://semver.org/).
 - Releases are now in the CLIProxyAPI plugin store format. Each release has one
   `cliproxyapi-ollama_<version>_<goos>_<goarch>.zip` per platform, with the
   library at the zip root, plus a `checksums.txt` in `sha256sum` format.
-- Builds for all five store platforms: Linux (amd64, arm64), macOS (amd64,
-  arm64), and Windows (amd64).
+- Builds for Linux (amd64, arm64), macOS on Apple silicon (arm64), and Windows
+  (amd64).
   - CI loads each build into the matching CLIProxyAPI v8.0.11 release binary
     and runs a smoke test against a fake Ollama.
   - Linux libraries are built on manylinux2014, so they need at most glibc
     2.17, the same baseline as CLIProxyAPI's own binaries.
+
+### Not supported
+
+- Intel macOS (darwin/amd64). Go hard-codes the goroutine pointer at
+  `%gs:0x30` there, so a Go plugin's runtime and the Go-based CLIProxyAPI host
+  share one TLS slot, and the plugin crashes the host on its first call
+  ([golang/go#38692](https://github.com/golang/go/issues/38692)).
 
 ### Changed
 

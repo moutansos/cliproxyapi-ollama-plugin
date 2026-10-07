@@ -80,7 +80,12 @@ Releases follow the CLIProxyAPI plugin store format:
   library at the zip root;
 - a `checksums.txt` in `sha256sum` format.
 
-The platforms are linux amd64/arm64, darwin amd64/arm64, and windows amd64.
+The platforms are linux amd64/arm64, darwin arm64, and windows amd64.
+darwin/amd64 is not built: Go uses one fixed TLS slot (`%gs:0x30`) for the
+goroutine pointer there, which a Go plugin shares with the Go-based host. The
+plugin crashed CLIProxyAPI on its first call in CI (`fatal error: unknown
+caller pc`; see golang/go#38692). The store review asks for darwin/amd64; see
+`docs/store-submission.md`.
 
 The `Build` workflow runs on every push and pull request. For each platform it:
 
