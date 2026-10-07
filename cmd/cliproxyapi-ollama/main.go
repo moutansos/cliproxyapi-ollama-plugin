@@ -67,7 +67,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginabi"
 )
 
-var pluginVersion = "0.1.0"
+var pluginVersion = "dev"
 
 var svc = service.New(hostBridge{}, pluginVersion, service.Options{})
 

@@ -22,39 +22,46 @@ copies, deletes, or pushes models.
 See [`docs/design.md`](docs/design.md) for the architecture and the v8.0.11 ABI
 findings.
 
-## Build
+## Install
 
-```sh
-make test      # go test ./...
-make vet       # go vet ./...
-make build     # build/plugins/linux/amd64/cliproxyapi-ollama.so (prints SHA-256)
-```
+### From the CPAMC plugin store
 
-`make build` compiles inside `golang:1.26-bookworm`, the same toolchain image
-CLIProxyAPI v8.0.11 is built with. The container runs `debian:bookworm` with
-glibc 2.36, and the artifact needs at most `GLIBC_2.34`. `make build-local`
-uses the host toolchain instead. Use it only if your host's glibc is not newer
-than the container's.
+1. Open CPAMC (`http://<cpa-host>:8317/management.html`), go to **Plugins →
+   Store**, and install **Ollama Provider**. CLIProxyAPI downloads the release
+   archive for its platform, checks it against `checksums.txt`, and enables
+   the plugin. `plugins.enabled` must already be `true`.
+2. Open **Plugins → cliproxyapi-ollama** and set `base_url` to your Ollama
+   server, for example `http://ollama.lan:11434`. The default,
+   `http://127.0.0.1:11434`, is wrong for CLIProxyAPI running in Docker.
 
-The plugin ID comes from the file name, so keep it as `cliproxyapi-ollama.so`.
+Updates appear in the store when a new release is published. Store installs
+use versioned file names (`cliproxyapi-ollama-v<version>.so`), so CLIProxyAPI
+can load an update without a restart.
 
-## Install / update / remove
+### From a release archive
 
-These steps are for a Docker deployment, where a host directory (`$PLUGINS`
-below) is mounted at `/CLIProxyAPI/plugins`.
+Each [GitHub release](https://github.com/moutansos/cliproxyapi-ollama-plugin/releases)
+has `cliproxyapi-ollama_<version>_<goos>_<goarch>.zip` for each of linux/amd64,
+linux/arm64, darwin/amd64, darwin/arm64, and windows/amd64, plus
+`checksums.txt`.
 
-**Install**
+1. Verify the archive and unzip it:
 
-1. Copy the library into a directory the plugin search covers (`<plugins.dir>`
-   or `<plugins.dir>/linux/amd64`):
+   ```sh
+   sha256sum -c checksums.txt --ignore-missing
+   unzip cliproxyapi-ollama_<version>_linux_amd64.zip
+   ```
+
+2. Copy the library into `<plugins.dir>/<goos>/<goarch>/`. In Docker, a host
+   directory (`$PLUGINS` below) is mounted at `/CLIProxyAPI/plugins`:
 
    ```sh
    sudo install -o root -g root -m 0755 cliproxyapi-ollama.so \
      "$PLUGINS/linux/amd64/cliproxyapi-ollama.so"
    ```
 
-2. Enable and configure it, preferably in CPAMC under **Plugins →
-   cliproxyapi-ollama**, or through the management API:
+3. Enable and configure it, either in CPAMC under **Plugins →
+   cliproxyapi-ollama** or through the management API:
 
    ```sh
    curl -X PUT -H "Authorization: Bearer $MGMT_KEY" -H 'Content-Type: application/json' \
@@ -63,20 +70,51 @@ below) is mounted at `/CLIProxyAPI/plugins`.
    ```
 
    CLIProxyAPI reloads its config and loads the plugin without a restart.
-   `plugins.enabled` must already be `true`.
 
-**Update.** Overwrite the `.so` with the same name. Then trigger a reload,
-for example by saving the plugin config in CPAMC, or restart CLIProxyAPI.
-Note: Go `c-shared` libraries cannot be truly unloaded. A same-path update is
-picked up reliably only after a CLIProxyAPI restart.
+The plugin ID comes from the file name. Keep it `cliproxyapi-ollama.<ext>`,
+or `cliproxyapi-ollama-v<version>.<ext>` as the store names it.
 
-**Disable.** Set `enabled: false`, either with the CPAMC toggle or with
-`PATCH /v0/management/plugins/cliproxyapi-ollama/enabled` and body
-`{"enabled": false}`.
+### Update, disable, remove
 
-**Remove.** Disable the plugin, delete the `plugins.configs.cliproxyapi-ollama`
-block (CPAMC's delete removes both the file and the config), then delete the
-`.so`.
+- **Update:** a store install updates in place. A manually installed library
+  overwritten at the same path is picked up only after a CLIProxyAPI restart,
+  because Go `c-shared` libraries cannot be unloaded.
+- **Disable:** use the CPAMC toggle, or
+  `PATCH /v0/management/plugins/cliproxyapi-ollama/enabled` with
+  `{"enabled": false}`.
+- **Remove:** CPAMC's delete removes both the file and the
+  `plugins.configs.cliproxyapi-ollama` block.
+
+## Build
+
+```sh
+make test     # go test ./...
+make vet      # go vet ./...
+make build    # build/plugins/linux/amd64/cliproxyapi-ollama.so (manylinux2014, Docker)
+make package  # dist/cliproxyapi-ollama_<version>_linux_amd64.zip + checksums.txt, verified
+make smoke    # load the build into a real CLIProxyAPI release binary against a fake Ollama
+```
+
+- **Linux:** builds run in `quay.io/pypa/manylinux2014_*` and fail if the
+  library needs glibc newer than 2.17, the same baseline CLIProxyAPI's own
+  Linux binaries target. `make build-local` uses the host toolchain instead.
+- **macOS and Windows:** CI builds these natively.
+- **Version:** read from `VERSION`.
+
+### Releasing
+
+1. Update `VERSION` and `CHANGELOG.md` and commit.
+2. Push a `v<version>` tag that matches `VERSION`.
+
+The [`Build`](.github/workflows/build.yml) workflow then:
+
+- runs the tests;
+- builds all five platforms;
+- loads each library into the matching CLIProxyAPI release binary and runs the
+  smoke test;
+- verifies the archives against the store installer's rules;
+- publishes the GitHub release with the zips, `checksums.txt`, and the
+  changelog section.
 
 ## Configuration
 
@@ -192,8 +230,8 @@ Save. `/v1/models` shows the new `context_length` immediately.
 These routes require the management key:
 
 ```sh
-curl -H "Authorization: Bearer $MGMT_KEY" http://<cpa-host>:8317/v0/management/cliproxyapi-ollama/status
-curl -X POST -H "Authorization: Bearer $MGMT_KEY" http://<cpa-host>:8317/v0/management/cliproxyapi-ollama/refresh
+curl -H "Authorization: Bearer $MGMT_KEY" http://<cpa-host>:8317/v0/management/plugins/cliproxyapi-ollama/status
+curl -X POST -H "Authorization: Bearer $MGMT_KEY" http://<cpa-host>:8317/v0/management/plugins/cliproxyapi-ollama/refresh
 ```
 
 The status response covers:

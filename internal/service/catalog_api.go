@@ -122,8 +122,8 @@ func (s *Service) InterceptResponse(req pluginapi.ResponseInterceptRequest) plug
 
 // Management route paths, relative to /v0/management.
 const (
-	StatusRoutePath  = "/cliproxyapi-ollama/status"
-	RefreshRoutePath = "/cliproxyapi-ollama/refresh"
+	StatusRoutePath  = "/plugins/cliproxyapi-ollama/status"
+	RefreshRoutePath = "/plugins/cliproxyapi-ollama/refresh"
 )
 
 // ManagementRoutes lists authenticated diagnostic routes.

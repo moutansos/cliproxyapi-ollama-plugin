@@ -3,3 +3,4 @@
 *.so
 *.h
 /docs/*.local.md
+/dist/
